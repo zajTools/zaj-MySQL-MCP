@@ -4,36 +4,67 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import * as readline from 'readline';
 import { createInterface } from 'readline';
+import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as path from 'path';
 
-// Parse command line arguments
+// Load environment variables from .env file
+dotenv.config();
+
+// Validate required environment variables
+function validateEnv() {
+  const requiredVars = ['DB_CONNECTION', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+  const missingVars = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.error('Error: Missing required environment variables:');
+    missingVars.forEach(varName => {
+      console.error(`  - ${varName}`);
+    });
+    console.error('\nPlease create a .env file with these variables. See .env.example for reference.');
+    process.exit(1);
+  }
+
+  // Validate DB_CONNECTION is mysql
+  if (process.env.DB_CONNECTION !== 'mysql') {
+    console.error('Error: DB_CONNECTION must be set to "mysql"');
+    console.error('Please check your .env file and set DB_CONNECTION=mysql');
+    process.exit(1);
+  }
+}
+
+// Parse command line arguments (as fallback to .env)
 const argv = yargs(hideBin(process.argv))
   .option('host', {
     type: 'string',
     description: 'MySQL host',
-    default: 'localhost',
+    default: process.env.DB_HOST || 'localhost',
   })
   .option('port', {
     type: 'number',
     description: 'MySQL port',
-    default: 3306,
+    default: parseInt(process.env.DB_PORT || '3306'),
   })
   .option('user', {
     type: 'string',
     description: 'MySQL username',
-    default: 'root',
+    default: process.env.DB_USER,
   })
   .option('password', {
     type: 'string',
     description: 'MySQL password',
-    default: '',
+    default: process.env.DB_PASSWORD,
   })
   .option('database', {
     type: 'string',
     description: 'MySQL database name',
-    demandOption: true,
+    default: process.env.DB_NAME,
   })
   .help()
   .alias('help', 'h').argv as any;
+
+// Validate environment variables
+validateEnv();
 
 // Error codes
 enum ErrorCode {

@@ -24,19 +24,42 @@ This will create:
 
 ### 2. Configure the MCP Server
 
-Update your `cline_mcp_settings.json` file to include the MySQL MCP server:
+1. Create a `.env` file with your database credentials:
+
+```bash
+cp .env.example .env
+```
+
+2. Edit the `.env` file with your MySQL credentials:
+
+```
+# Database Connection
+DB_CONNECTION=mysql
+
+# Database Host
+DB_HOST=localhost
+
+# Database Port
+DB_PORT=3306
+
+# Database Username (required)
+DB_USER=your_username
+
+# Database Password (required)
+DB_PASSWORD=your_password
+
+# Database Name (required)
+DB_NAME=mcp_demo
+```
+
+3. Update your `cline_mcp_settings.json` file to include the MySQL MCP server:
 
 ```json
 "mcpServers": {
   "mysql": {
     "command": "node",
     "args": [
-      "/path/to/zaj_MySQL_MCP/build/index.js",
-      "--host", "localhost",
-      "--port", "3306",
-      "--user", "your_username",
-      "--password", "your_password",
-      "--database", "mcp_demo"
+      "/path/to/zaj_MySQL_MCP/build/index.js"
     ],
     "disabled": false,
     "autoApprove": []
@@ -44,9 +67,7 @@ Update your `cline_mcp_settings.json` file to include the MySQL MCP server:
 }
 ```
 
-Replace:
-- `/path/to/zaj_MySQL_MCP/build/index.js` with the actual path to the built index.js file
-- `your_username` and `your_password` with your MySQL credentials
+Replace `/path/to/zaj_MySQL_MCP/build/index.js` with the actual path to the built index.js file.
 
 ## Example Usage with Claude
 

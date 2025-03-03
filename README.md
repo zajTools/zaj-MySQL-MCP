@@ -60,6 +60,37 @@ This MCP server implements the Model Context Protocol directly, without relying 
 
 The server follows the JSON-RPC 2.0 protocol for communication with Claude, handling requests for tool listings, resource listings, and tool execution.
 
+## Configuration
+
+The MySQL MCP server uses environment variables for configuration. Create a `.env` file in the root directory with the following variables:
+
+```
+# Database Connection
+DB_CONNECTION=mysql
+
+# Database Host
+DB_HOST=localhost
+
+# Database Port
+DB_PORT=3306
+
+# Database Username (required)
+DB_USER=your_mysql_username
+
+# Database Password (required)
+DB_PASSWORD=your_mysql_password
+
+# Database Name (required)
+DB_NAME=your_database_name
+```
+
+A `.env.example` file is provided as a template. Copy it to `.env` and update the values:
+
+```bash
+cp .env.example .env
+# Then edit .env with your database credentials
+```
+
 ## Usage with Claude Desktop
 
 Add the server to your `cline_mcp_settings.json`:
@@ -69,18 +100,15 @@ Add the server to your `cline_mcp_settings.json`:
   "mysql": {
     "command": "node",
     "args": [
-      "/Users/malekokour/My_Projects/zajTools/zajMCP_Tools/zaj_MySQL_MCP/build/index.js",
-      "--host", "localhost",
-      "--port", "3306",
-      "--user", "your_mysql_username",
-      "--password", "your_mysql_password",
-      "--database", "your_database_name"
+      "/path/to/zaj_MySQL_MCP/build/index.js"
     ],
     "disabled": false,
     "autoApprove": []
   }
 }
 ```
+
+Note that database credentials are now configured through the `.env` file, not through command line arguments.
 
 ## Building and Running
 
@@ -90,19 +118,25 @@ git clone https://github.com/zajTools/zaj-MySQL-MCP.git
 cd zaj-MySQL-MCP
 ```
 
-2. Install dependencies:
+2. Create and configure your .env file:
+```bash
+cp .env.example .env
+# Edit .env with your database credentials
+```
+
+3. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Build the server:
+4. Build the server:
 ```bash
 npm run build
 ```
 
-4. Run the server (requires a MySQL database):
+5. Run the server:
 ```bash
-node build/index.js --database your_database_name
+node build/index.js
 ```
 
 ## Demo and Examples
