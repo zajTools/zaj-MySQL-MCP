@@ -1,6 +1,6 @@
-# MySQL MCP Server
+# zaj-MySQL-MCP
 
-An MCP server implementation that provides database interaction and business intelligence capabilities through MySQL. This server enables running SQL queries, analyzing business data, and automatically generating business insight memos.
+A Model Context Protocol (MCP) server implementation that provides database interaction and business intelligence capabilities through MySQL. This server enables running SQL queries, analyzing business data, and automatically generating business insight memos.
 
 ## Features
 
@@ -50,6 +50,16 @@ The server exposes a single resource:
 - **memo://insights**: A continuously updated business insights memo that aggregates discovered insights during analysis
   - Auto-updates as new insights are discovered via the append-insight tool
 
+## Implementation Details
+
+This MCP server implements the Model Context Protocol directly, without relying on external SDK dependencies. It uses:
+
+- **mysql2**: For MySQL database connectivity
+- **yargs**: For command-line argument parsing
+- **readline**: For handling stdin/stdout communication
+
+The server follows the JSON-RPC 2.0 protocol for communication with Claude, handling requests for tool listings, resource listings, and tool execution.
+
 ## Usage with Claude Desktop
 
 Add the server to your `cline_mcp_settings.json`:
@@ -59,7 +69,7 @@ Add the server to your `cline_mcp_settings.json`:
   "mysql": {
     "command": "node",
     "args": [
-      "/path/to/mysql-server/build/index.js",
+      "/Users/malekokour/My_Projects/zajTools/zajMCP_Tools/zaj_MySQL_MCP/build/index.js",
       "--host", "localhost",
       "--port", "3306",
       "--user", "your_mysql_username",
@@ -72,17 +82,27 @@ Add the server to your `cline_mcp_settings.json`:
 }
 ```
 
-## Building
+## Building and Running
 
-1. Install dependencies:
+1. Clone the repository:
 ```bash
-cd ~/Documents/Cline/MCP/mysql-server
+git clone https://github.com/zajTools/zaj-MySQL-MCP.git
+cd zaj-MySQL-MCP
+```
+
+2. Install dependencies:
+```bash
 npm install
 ```
 
-2. Build the server:
+3. Build the server:
 ```bash
 npm run build
+```
+
+4. Run the server (requires a MySQL database):
+```bash
+node build/index.js --database your_database_name
 ```
 
 ## License
