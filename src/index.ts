@@ -112,24 +112,12 @@ interface McpResponse {
 }
 
 class MySQLServer {
-  private pool: mysql.Pool;
+  private pool!: mysql.Pool; // Using the definite assignment assertion
   private insights: Insight[] = [];
   private insightCounter = 0;
   private rl: readline.Interface;
 
   constructor() {
-    // Create MySQL connection pool
-    this.pool = mysql.createPool({
-      host: argv.host,
-      port: argv.port,
-      user: argv.user,
-      password: argv.password,
-      database: argv.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-    });
-
     // Create readline interface for stdin/stdout
     this.rl = createInterface({
       input: process.stdin,
@@ -139,9 +127,59 @@ class MySQLServer {
 
     // Handle SIGINT
     process.on('SIGINT', async () => {
-      await this.pool.end();
+      if (this.pool) {
+        await this.pool.end();
+      }
       process.exit(0);
     });
+  }
+
+  // Initialize database and connection pool
+  private async initializeDatabase(): Promise<void> {
+    try {
+      // First create a connection without specifying a database
+      const connection = await mysql.createConnection({
+        host: argv.host,
+        port: argv.port,
+        user: argv.user,
+        password: argv.password,
+      });
+
+      // Check if database exists, create if it doesn't
+      console.error(`Checking if database '${argv.database}' exists...`);
+      const [rows] = await connection.query(
+        'SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?',
+        [argv.database]
+      );
+
+      if (Array.isArray(rows) && rows.length === 0) {
+        console.error(`Database '${argv.database}' does not exist, creating it...`);
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${argv.database}\``);
+        console.error(`Database '${argv.database}' created successfully.`);
+      } else {
+        console.error(`Database '${argv.database}' already exists.`);
+      }
+
+      // Close the initial connection
+      await connection.end();
+
+      // Create the pool with the database specified
+      this.pool = mysql.createPool({
+        host: argv.host,
+        port: argv.port,
+        user: argv.user,
+        password: argv.password,
+        database: argv.database,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+      });
+
+      console.error(`Connected to MySQL database: ${argv.database}`);
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      throw error;
+    }
   }
 
   // Handle MCP requests
@@ -514,10 +552,8 @@ class MySQLServer {
   // Start the server
   async run() {
     try {
-      // Test database connection
-      const connection = await this.pool.getConnection();
-      connection.release();
-      console.error(`Connected to MySQL database: ${argv.database}`);
+      // Initialize database and connection pool
+      await this.initializeDatabase();
 
       // Start reading from stdin
       this.rl.on('line', async (line) => {
