@@ -105,6 +105,23 @@ npm run build
 node build/index.js --database your_database_name
 ```
 
+## Demo and Examples
+
+We've included example materials to help you get started with the MySQL MCP server:
+
+- **Sample Database**: A complete e-commerce database schema with customers, products, orders, and sales data
+- **Example Queries**: Pre-written queries demonstrating various capabilities of the MCP server
+- **Usage Scenarios**: Examples of how Claude can interact with your MySQL database
+
+To try the demo:
+
+1. Check out the [Demo Guide](examples/DEMO.md) for step-by-step instructions
+2. Run the [Setup SQL Script](examples/sql/setup.sql) to create the sample database
+3. Configure the MCP server to connect to the demo database
+4. Start asking Claude questions about your data!
+
+These examples are designed to show the potential of using Claude with MySQL databases, but the MCP server works with any MySQL database you have access to.
+
 ## License
 
 This MCP server is licensed under the MIT License.
