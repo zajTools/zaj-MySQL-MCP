@@ -136,48 +136,202 @@ class MySQLServer {
 
   // Initialize database and connection pool
   private async initializeDatabase(): Promise<void> {
+    let connection: mysql.Connection | null = null;
+    
     try {
       // First create a connection without specifying a database
-      const connection = await mysql.createConnection({
-        host: argv.host,
-        port: argv.port,
-        user: argv.user,
-        password: argv.password,
-      });
+      console.error(`Connecting to MySQL server at ${argv.host}:${argv.port}...`);
+      try {
+        connection = await mysql.createConnection({
+          host: argv.host,
+          port: argv.port,
+          user: argv.user,
+          password: argv.password,
+          connectTimeout: 10000, // 10 seconds timeout
+        });
+        console.error('Successfully connected to MySQL server.');
+      } catch (err) {
+        const error = err as Error;
+        console.error('Failed to connect to MySQL server:', error.message);
+        if (error.message.includes('Access denied')) {
+          console.error('Please check your MySQL username and password in the .env file.');
+        } else if (error.message.includes('ECONNREFUSED')) {
+          console.error('Could not connect to MySQL server. Please check if the server is running and the host/port settings are correct.');
+        }
+        throw new Error(`MySQL connection failed: ${error.message}`);
+      }
 
       // Check if database exists, create if it doesn't
       console.error(`Checking if database '${argv.database}' exists...`);
-      const [rows] = await connection.query(
-        'SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?',
-        [argv.database]
-      );
+      try {
+        const [rows] = await connection.query(
+          'SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?',
+          [argv.database]
+        );
 
-      if (Array.isArray(rows) && rows.length === 0) {
-        console.error(`Database '${argv.database}' does not exist, creating it...`);
-        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${argv.database}\``);
-        console.error(`Database '${argv.database}' created successfully.`);
-      } else {
-        console.error(`Database '${argv.database}' already exists.`);
+        if (Array.isArray(rows) && rows.length === 0) {
+          console.error(`Database '${argv.database}' does not exist, creating it...`);
+          await connection.query(`CREATE DATABASE IF NOT EXISTS \`${argv.database}\``);
+          console.error(`Database '${argv.database}' created successfully.`);
+        } else {
+          console.error(`Database '${argv.database}' already exists.`);
+        }
+      } catch (err) {
+        const error = err as Error;
+        console.error('Failed to check/create database:', error.message);
+        throw new Error(`Database check/creation failed: ${error.message}`);
       }
 
-      // Close the initial connection
-      await connection.end();
-
       // Create the pool with the database specified
-      this.pool = mysql.createPool({
-        host: argv.host,
-        port: argv.port,
-        user: argv.user,
-        password: argv.password,
-        database: argv.database,
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0,
-      });
+      try {
+        this.pool = mysql.createPool({
+          host: argv.host,
+          port: argv.port,
+          user: argv.user,
+          password: argv.password,
+          database: argv.database,
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+          connectTimeout: 10000, // 10 seconds timeout
+        });
+        
+        // Verify pool connection works
+        const [testResult] = await this.pool.query('SELECT 1 AS connection_test');
+        if (Array.isArray(testResult) && testResult.length > 0) {
+          console.error(`Connected to MySQL database: ${argv.database}`);
+        }
+      } catch (err) {
+        const error = err as Error;
+        console.error('Failed to create connection pool:', error.message);
+        throw new Error(`Connection pool creation failed: ${error.message}`);
+      }
 
-      console.error(`Connected to MySQL database: ${argv.database}`);
+      // Run migrations
+      await this.runMigrations();
     } catch (error) {
       console.error('Failed to initialize database:', error);
+      throw error;
+    } finally {
+      // Close the initial connection if it was created
+      if (connection) {
+        try {
+          await connection.end();
+        } catch (err) {
+          console.error('Error closing initial connection:', err);
+        }
+      }
+    }
+  }
+
+  // Run migrations from setup.sql
+  private async runMigrations(): Promise<void> {
+    try {
+      console.error('Running migrations...');
+      
+      // Check if the setup.sql file exists
+      const setupFilePath = path.join(process.cwd(), 'examples', 'sql', 'setup.sql');
+      if (!fs.existsSync(setupFilePath)) {
+        console.error('Migration file not found:', setupFilePath);
+        return;
+      }
+
+      // Read the setup.sql file
+      const setupSql = fs.readFileSync(setupFilePath, 'utf8');
+      
+      // Improved SQL statement parsing that handles comments and multi-line statements better
+      const statements: string[] = [];
+      let currentStatement = '';
+      let inComment = false;
+      let inString = false;
+      let stringDelimiter = '';
+      
+      // Process the SQL file character by character
+      for (let i = 0; i < setupSql.length; i++) {
+        const char = setupSql[i];
+        const nextChar = i < setupSql.length - 1 ? setupSql[i + 1] : '';
+        
+        // Handle string literals
+        if (!inComment && (char === "'" || char === '"' || char === '`')) {
+          if (!inString) {
+            inString = true;
+            stringDelimiter = char;
+          } else if (char === stringDelimiter) {
+            inString = false;
+          }
+        }
+        
+        // Handle comments
+        if (!inString) {
+          // Start of multi-line comment
+          if (char === '/' && nextChar === '*' && !inComment) {
+            inComment = true;
+            i++; // Skip the next character
+            continue;
+          }
+          
+          // End of multi-line comment
+          if (char === '*' && nextChar === '/' && inComment) {
+            inComment = false;
+            i++; // Skip the next character
+            continue;
+          }
+          
+          // Single line comment
+          if (char === '-' && nextChar === '-' && !inComment) {
+            // Skip until the end of the line
+            while (i < setupSql.length && setupSql[i] !== '\n') {
+              i++;
+            }
+            continue;
+          }
+        }
+        
+        // If we're in a comment, don't add to the statement
+        if (inComment) {
+          continue;
+        }
+        
+        // Add character to current statement
+        currentStatement += char;
+        
+        // Check for statement termination
+        if (char === ';' && !inString) {
+          const trimmedStatement = currentStatement.trim();
+          if (trimmedStatement.length > 0) {
+            statements.push(trimmedStatement);
+          }
+          currentStatement = '';
+        }
+      }
+      
+      // Add the last statement if it doesn't end with a semicolon
+      const trimmedLastStatement = currentStatement.trim();
+      if (trimmedLastStatement.length > 0) {
+        statements.push(trimmedLastStatement);
+      }
+      
+      // Execute each statement
+      for (const statement of statements) {
+        // Skip CREATE DATABASE and USE statements as we've already handled the database creation
+        if (statement.toLowerCase().includes('create database') || 
+            statement.toLowerCase().includes('use ')) {
+          continue;
+        }
+        
+        try {
+          await this.pool.query(statement);
+          console.error(`Executed migration: ${statement.substring(0, 50)}...`);
+        } catch (error) {
+          console.error(`Error executing migration: ${statement.substring(0, 100)}...`);
+          console.error(error);
+          // Continue with other migrations even if one fails
+        }
+      }
+      
+      console.error('Migrations completed successfully.');
+    } catch (error) {
+      console.error('Error running migrations:', error);
       throw error;
     }
   }
@@ -367,86 +521,202 @@ class MySQLServer {
     }
   }
 
+  // Validate SQL query
+  private validateSqlQuery(query: string, expectedType: 'select' | 'write' | 'create_table'): void {
+    if (!query || typeof query !== 'string') {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'Query must be a non-empty string'
+      );
+    }
+
+    const trimmedQuery = query.trim().toLowerCase();
+    
+    switch (expectedType) {
+      case 'select':
+        if (!trimmedQuery.startsWith('select')) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            'Only SELECT queries are allowed with read_query'
+          );
+        }
+        
+        // Check for potentially harmful operations
+        if (
+          trimmedQuery.includes('drop ') ||
+          trimmedQuery.includes('delete ') ||
+          trimmedQuery.includes('update ') ||
+          trimmedQuery.includes('insert ') ||
+          trimmedQuery.includes('alter ') ||
+          trimmedQuery.includes('create ')
+        ) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            'The query contains potentially harmful operations. Only SELECT statements are allowed with read_query.'
+          );
+        }
+        break;
+        
+      case 'write':
+        if (trimmedQuery.startsWith('select')) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            'SELECT queries are not allowed with write_query, use read_query instead'
+          );
+        }
+        
+        // Check for allowed operations
+        if (
+          !trimmedQuery.startsWith('insert ') &&
+          !trimmedQuery.startsWith('update ') &&
+          !trimmedQuery.startsWith('delete ')
+        ) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            'Only INSERT, UPDATE, and DELETE operations are allowed with write_query'
+          );
+        }
+        
+        // Check for potentially harmful operations
+        if (
+          trimmedQuery.includes('drop ') ||
+          trimmedQuery.includes('alter ') ||
+          trimmedQuery.includes('create ')
+        ) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            'The query contains potentially harmful operations. Only INSERT, UPDATE, and DELETE are allowed with write_query.'
+          );
+        }
+        break;
+        
+      case 'create_table':
+        if (!trimmedQuery.startsWith('create table')) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            'Only CREATE TABLE statements are allowed with create_table'
+          );
+        }
+        break;
+    }
+  }
+
   // Handle tool calls
   private async handleToolCall(request: McpRequest): Promise<McpResponse> {
     try {
       switch (request.params.name) {
         case 'read_query': {
-          const { query } = request.params.arguments as { query: string };
-
-          // Validate that this is a SELECT query
-          if (!query.trim().toLowerCase().startsWith('select')) {
+          // Check if arguments exist and have the expected structure
+          if (!request.params.arguments || typeof request.params.arguments !== 'object') {
             throw new McpError(
               ErrorCode.InvalidParams,
-              'Only SELECT queries are allowed with read_query'
+              'Invalid arguments: Expected an object with a "query" property'
             );
           }
+          
+          const { query } = request.params.arguments as { query: string };
+          
+          // Validate query
+          this.validateSqlQuery(query, 'select');
 
-          const [rows] = await this.pool.query(query);
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify(rows, null, 2),
-                },
-              ],
-            },
-          };
+          try {
+            const [rows] = await this.pool.query(query);
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(rows, null, 2),
+                  },
+                ],
+              },
+            };
+          } catch (err) {
+            const error = err as Error;
+            console.error('Error executing read query:', error.message);
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Database error: ${error.message}`
+            );
+          }
         }
 
         case 'write_query': {
-          const { query } = request.params.arguments as { query: string };
-
-          // Validate that this is not a SELECT query
-          if (query.trim().toLowerCase().startsWith('select')) {
+          // Check if arguments exist and have the expected structure
+          if (!request.params.arguments || typeof request.params.arguments !== 'object') {
             throw new McpError(
               ErrorCode.InvalidParams,
-              'SELECT queries are not allowed with write_query, use read_query instead'
+              'Invalid arguments: Expected an object with a "query" property'
             );
           }
+          
+          const { query } = request.params.arguments as { query: string };
+          
+          // Validate query
+          this.validateSqlQuery(query, 'write');
 
-          const [result] = await this.pool.query(query);
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({ affected_rows: (result as any).affectedRows }, null, 2),
-                },
-              ],
-            },
-          };
+          try {
+            const [result] = await this.pool.query(query);
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify({ affected_rows: (result as any).affectedRows }, null, 2),
+                  },
+                ],
+              },
+            };
+          } catch (err) {
+            const error = err as Error;
+            console.error('Error executing write query:', error.message);
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Database error: ${error.message}`
+            );
+          }
         }
 
         case 'create_table': {
-          const { query } = request.params.arguments as { query: string };
-
-          // Validate that this is a CREATE TABLE query
-          if (!query.trim().toLowerCase().startsWith('create table')) {
+          // Check if arguments exist and have the expected structure
+          if (!request.params.arguments || typeof request.params.arguments !== 'object') {
             throw new McpError(
               ErrorCode.InvalidParams,
-              'Only CREATE TABLE statements are allowed with create_table'
+              'Invalid arguments: Expected an object with a "query" property'
             );
           }
+          
+          const { query } = request.params.arguments as { query: string };
+          
+          // Validate query
+          this.validateSqlQuery(query, 'create_table');
 
-          await this.pool.query(query);
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              content: [
-                {
-                  type: 'text',
-                  text: 'Table created successfully',
-                },
-              ],
-            },
-          };
+          try {
+            await this.pool.query(query);
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Table created successfully',
+                  },
+                ],
+              },
+            };
+          } catch (err) {
+            const error = err as Error;
+            console.error('Error creating table:', error.message);
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Database error: ${error.message}`
+            );
+          }
         }
 
         case 'list_tables': {
